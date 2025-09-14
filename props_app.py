@@ -220,7 +220,7 @@ sum_cols = [c for c in [
 player_pg = per_game(wk, ["team","player_id","player_name","position"], sum_cols)
 player_pg = player_pg[player_pg["games"] >= min_games].copy()
 
-likely = select_likely_starters(player_pg, by_team_pos=True)
+likely = select_likely_starters(player_pg)
 if likely.empty:
     st.warning("Could not identify likely starters from last season. Try lowering 'Min games for baseline'.")
 else:
