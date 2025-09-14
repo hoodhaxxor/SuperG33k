@@ -101,23 +101,41 @@ def per_game(df, group_cols, sum_cols):
         out[c+"_pg"] = out[c] / out["games"].replace(0, np.nan)
     return out
 
-def select_likely_starters(baselines, by_team_pos):
-    """Return a trimmed list of likely starters per team & position."""
-    out = []
-    for team, group in baselines.groupby("team"):
-        qbs = group[group["position"]=="QB"].sort_values("attempts_pg", ascending=False)
-        if not qbs.empty:
-            out.append(qbs.iloc[0])
-        rbs = group[group["position"].isin(["RB","FB"])].sort_values("carries_pg", ascending=False)
-        if not rbs.empty:
-            out.append(rbs.iloc[0])
-        wrs = group[group["position"].isin(["WR"])].sort_values("targets_pg", ascending=False)
-        out.extend(list(wrs.head(2).itertuples(index=False)))
-    out = pd.DataFrame(out)
-    if not isinstance(out, pd.DataFrame):
-        out = pd.DataFrame(out)
-    return out
+def select_likely_starters(baselines: pd.DataFrame) -> pd.DataFrame:
+    """
+    Pick QB1 (by attempts_pg), RB1 (by carries_pg), WR1/WR2 (by targets_pg) per team.
+    Returns a single DataFrame; avoids mixing Series/namedtuples.
+    """
+    rows = []
 
+    # Ensure the rank columns exist even if your data source is missing one
+    for col in ["attempts_pg", "carries_pg", "targets_pg"]:
+        if col not in baselines.columns:
+            baselines[col] = 0.0
+
+    # Build per-team selections as DataFrames, then concat
+    for team, g in baselines.groupby("team", dropna=False):
+        qb = g.loc[g["position"] == "QB"].sort_values("attempts_pg", ascending=False).head(1)
+        rb = g.loc[g["position"].isin(["RB", "FB"])].sort_values("carries_pg", ascending=False).head(1)
+        wr = g.loc[g["position"] == "WR"].sort_values("targets_pg", ascending=False).head(2)
+
+        picks = pd.concat([qb, rb, wr], axis=0)
+        if not picks.empty:
+            rows.append(picks)
+
+    if not rows:
+        # Return empty with expected columns if nothing is found
+        return baselines.head(0)
+
+    out = pd.concat(rows, ignore_index=True)
+
+    # Drop dupes (player traded mid-season, etc.)
+    if "player_id" in out.columns:
+        out = out.drop_duplicates(subset=["team", "player_id"], keep="first")
+    else:
+        out = out.drop_duplicates(subset=["team", "player_name", "position"], keep="first")
+
+    return out
 def build_defense_allowance_tables(wk):
     pass_allow = per_game(wk, ["opponent_team"], ["passing_yards","completions","passing_tds"]).rename(columns={"opponent_team":"defteam"})
     rush_allow = per_game(wk, ["opponent_team"], ["rushing_yards","carries","rushing_tds"]).rename(columns={"opponent_team":"defteam"})
